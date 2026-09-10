@@ -55,18 +55,36 @@ def find_matching_image(scene_id: str, images_source: Any) -> Optional[str]:
             return images_source[clean_id]
         candidates = list(images_source.values())
 
-    # Priority 1: Exact filename match or exact token match (001.png, flow_001_..., scene_001)
+    # Priority 1: Exact match (e.g. 001.png) or starts with (001_*, 001-*, 001 *, 001.*)
     for path in candidates:
         basename = os.path.splitext(os.path.basename(path))[0]
         if basename == pad_id or basename == clean_id:
             return path
-        if re.search(rf'(^|[^0-9]){pad_id}([^0-9]|$)', basename):
+        if re.match(rf'^{pad_id}[_\-\s\.]', basename) or re.match(rf'^{clean_id}[_\-\s\.]', basename):
             return path
 
-    # Priority 2: Fallback to non-padded digit token match
+    # Priority 2: Contains (001), [001], (1), or [1]
     for path in candidates:
         basename = os.path.splitext(os.path.basename(path))[0]
-        if re.search(rf'(^|[^0-9]){clean_id}([^0-9]|$)', basename):
+        if f"({pad_id})" in basename or f"[{pad_id}]" in basename or f"({clean_id})" in basename or f"[{clean_id}]" in basename:
+            return path
+
+    # Priority 3: Contains bounded token *001* (surrounded by non-digits, e.g. flow_001_render, scene-001)
+    for path in candidates:
+        basename = os.path.splitext(os.path.basename(path))[0]
+        if re.search(rf'(?<!\d){pad_id}(?!\d)', basename):
+            return path
+
+    # Priority 4: Broad contains *001* substring anywhere in filename
+    for path in candidates:
+        basename = os.path.splitext(os.path.basename(path))[0]
+        if pad_id in basename:
+            return path
+
+    # Priority 5: Fallback to non-padded digit token (e.g. scene_1.png)
+    for path in candidates:
+        basename = os.path.splitext(os.path.basename(path))[0]
+        if re.search(rf'(?<!\d){clean_id}(?!\d)', basename):
             return path
 
     return None
