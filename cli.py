@@ -9,22 +9,32 @@ if hasattr(sys.stdout, "reconfigure"):
 
 from pipeline.aligner import parse_scene_script, align_scenes_to_audio, get_audio_duration
 from pipeline.composer import assemble_video, find_matching_image
+from pipeline.tts import synthesize_scenes_to_master_mp3, get_voice_choices, DEFAULT_VOICE
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Audio-to-Video Sync Studio: Synchronize numbered scenes and images with master audio."
+        description="Audio-to-Video Studio: Synchronize numbered scenes and images with master audio or AI voice."
     )
     parser.add_argument(
-        "--audio", "-a", required=True, help="Path to master MP3/WAV audio file"
+        "--audio", "-a", default=None,
+        help="Path to existing master MP3/WAV audio file. If omitted, voice is synthesized from script."
     )
     parser.add_argument(
         "--script", "-s", required=True,
         help="Path to script text file OR string containing numbered scenes (001: ...)"
     )
     parser.add_argument(
-        "--images", "-i", required=True,
+        "--images", "-i", default="",
         help="Path to folder containing numbered images (001.png, 002.png...) or comma-separated paths"
+    )
+    parser.add_argument(
+        "--voice", default=DEFAULT_VOICE,
+        help=f"Voice name for AI speech synthesis (default: {DEFAULT_VOICE})"
+    )
+    parser.add_argument(
+        "--speed", type=int, default=0,
+        help="Voice speech speed adjustment percent (-20 to +20). Default: 0"
     )
     parser.add_argument(
         "--output", "-o", default="outputs/synced_output.mp4",
@@ -44,14 +54,10 @@ def main():
     )
     parser.add_argument(
         "--model", default="base",
-        help="Whisper model size (tiny, base, small, medium, large-v3). Default: base"
+        help="Whisper model size (tiny, base, small, medium). Default: base"
     )
 
     args = parser.parse_args()
-
-    if not os.path.exists(args.audio):
-        print(f"❌ Error: Audio file '{args.audio}' not found.")
-        sys.exit(1)
 
     # Load script text
     if os.path.exists(args.script):
@@ -65,6 +71,21 @@ def main():
         print("❌ Error: No numbered scenes found in script. Use formats like '001: Text', '002: Text'.")
         sys.exit(1)
 
+    # Determine audio source
+    audio_path = args.audio
+    if not audio_path or not os.path.exists(audio_path):
+        print(f"🎙️ No master audio provided. Synthesizing AI voice using '{args.voice}'...")
+        os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
+        gen_audio_path = args.output.replace(".mp4", "_master_voice.mp3")
+        audio_path = synthesize_scenes_to_master_mp3(
+            scenes=scenes,
+            voice=args.voice,
+            speed_percent=args.speed,
+            output_path=gen_audio_path,
+            progress_callback=lambda f, desc: print(f"  [{int(f*100):3d}%] {desc}")
+        )
+        print(f"✅ Generated master audio: {audio_path}")
+
     # Images source
     if os.path.isdir(args.images):
         img_src = args.images
@@ -73,34 +94,33 @@ def main():
     elif os.path.exists(args.images):
         img_src = [args.images]
     else:
-        print(f"❌ Error: Images directory or file '{args.images}' does not exist.")
-        sys.exit(1)
+        img_src = []
 
-    total_dur = get_audio_duration(args.audio)
+    total_dur = get_audio_duration(audio_path)
     print(f"\n=======================================================")
-    print(f"🎵 Audio: {os.path.basename(args.audio)} ({total_dur:.2f}s)")
+    print(f"🎵 Audio: {os.path.basename(audio_path)} ({total_dur:.2f}s)")
     print(f"📑 Scenes parsed: {len(scenes)}")
     print(f"=======================================================\n")
 
     print("⏳ Aligning scenes with Whisper speech recognition...")
-    aligned = align_scenes_to_audio(scenes, args.audio, model_size=args.model)
+    aligned = align_scenes_to_audio(scenes, audio_path, model_size=args.model)
 
     print("\n--- Detected Scene Timestamps & Images ---")
     for s in aligned:
         matched_img = find_matching_image(s["id"], img_src)
-        matched_name = os.path.basename(matched_img) if matched_img else "MISSING (Placeholder)"
+        matched_name = os.path.basename(matched_img) if matched_img else "CINEMATIC SLATE (Placeholder)"
         print(f"Scene {s['id']}: [{s['start']:.2f}s -> {s['end']:.2f}s] (dur: {s['duration']:.2f}s) | Image: {matched_name}")
         print(f"  Narration: \"{s['text'][:60]}...\"" if len(s['text']) > 60 else f"  Narration: \"{s['text']}\"")
 
     if args.preview_only:
-        print("\n✅ Preview finished (--preview-only specified). Exiting.")
+        print("\n[SUCCESS] Preview finished (--preview-only specified). Exiting.")
         return
 
-    print("\n🎬 Rendering synchronized master video...")
+    print("\n🎬 Rendering synchronized master 1080p video...")
     out_file = assemble_video(
         aligned_scenes=aligned,
         images_source=img_src,
-        audio_path=args.audio,
+        audio_path=audio_path,
         output_path=args.output,
         enable_subtitles=not args.no_subtitles,
         enable_ken_burns=not args.no_ken_burns,
@@ -108,7 +128,7 @@ def main():
         progress_callback=lambda f, desc: print(f"  [{int(f*100):3d}%] {desc}")
     )
 
-    print(f"\n🎉 Success! Synced video rendered: {os.path.abspath(out_file)}")
+    print(f"\n[SUCCESS] Synced video rendered: {os.path.abspath(out_file)}")
 
 
 if __name__ == "__main__":
