@@ -4,33 +4,39 @@ import os
 import re
 import difflib
 import subprocess
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Optional
 
 
 _model = None
 
 
 def get_audio_duration(audio_path: str) -> float:
-    """Gets audio duration in seconds using ffprobe/ffmpeg."""
+    """Gets audio duration in seconds using moviepy, imageio_ffmpeg, or ffprobe."""
     try:
         from moviepy.editor import AudioFileClip
         clip = AudioFileClip(audio_path)
         dur = float(clip.duration)
         clip.close()
-        return dur
+        if dur > 0:
+            return dur
     except Exception:
         pass
 
-    # Fallback to ffprobe
     try:
-        cmd = [
-            "ffprobe", "-v", "error", "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1", audio_path
-        ]
-        out = subprocess.check_output(cmd, stderr=subprocess.STDOUT).decode().strip()
-        return float(out)
+        import imageio_ffmpeg
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        # Run ffmpeg -i audio_path
+        cmd = [ffmpeg_exe, "-i", audio_path]
+        p = subprocess.run(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        # Match Duration: 00:01:23.45
+        m = re.search(r"Duration:\s*(\d+):(\d+):(\d+\.\d+)", p.stderr)
+        if m:
+            hours, mins, secs = float(m.group(1)), float(m.group(2)), float(m.group(3))
+            return hours * 3600 + mins * 60 + secs
     except Exception:
-        return 0.0
+        pass
+
+    return 0.0
 
 
 def load_whisper_model(model_size: str = "base"):
@@ -47,10 +53,18 @@ def load_whisper_model(model_size: str = "base"):
     return _model
 
 
-def transcribe_audio_words(audio_path: str, model_size: str = "base") -> List[Dict[str, Any]]:
+def transcribe_audio_words(
+    audio_path: str,
+    model_size: str = "base",
+    language: Optional[str] = None
+) -> List[Dict[str, Any]]:
     """Transcribes audio and returns a list of {word, start, end} dicts."""
     model = load_whisper_model(model_size)
-    segments, _info = model.transcribe(audio_path, word_timestamps=True)
+    kwargs = {"word_timestamps": True}
+    if language:
+        kwargs["language"] = language
+
+    segments, _info = model.transcribe(audio_path, **kwargs)
 
     words = []
     for seg in segments:
@@ -96,7 +110,6 @@ def parse_scene_script(script_text: str) -> List[Dict[str, Any]]:
 
         match = header_pattern.match(line_str)
         if match:
-            # New scene header found
             raw_id = match.group(1)
             rest_text = match.group(2).strip()
 
@@ -109,13 +122,11 @@ def parse_scene_script(script_text: str) -> List[Dict[str, Any]]:
                     })
                 current_lines = []
 
-            # Format ID as 3 digits (e.g. 001)
             current_id = str(int(raw_id)).zfill(3)
             if rest_text:
                 current_lines.append(rest_text)
         else:
             if current_id is None:
-                # If no initial ID, start with 001
                 current_id = "001"
             current_lines.append(line_str)
 
@@ -138,7 +149,8 @@ def _normalize_text(text: str) -> str:
 def align_scenes_to_audio(
     scenes: List[Dict[str, Any]],
     audio_path: str,
-    model_size: str = "base"
+    model_size: str = "base",
+    language: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
     Aligns each scene's text with the master audio transcription.
@@ -153,11 +165,10 @@ def align_scenes_to_audio(
         audio_dur = 10.0
 
     print(f"[aligner] Transcribing audio '{audio_path}' (duration: {audio_dur:.2f}s)...")
-    whisper_words = transcribe_audio_words(audio_path, model_size=model_size)
+    whisper_words = transcribe_audio_words(audio_path, model_size=model_size, language=language)
     total_whisper_words = len(whisper_words)
 
     if total_whisper_words == 0:
-        # Fallback: distribute evenly if whisper returns no words
         print("[aligner] Warning: No words detected by Whisper. Distributing durations evenly.")
         per_scene = audio_dur / len(scenes)
         aligned = []
@@ -174,10 +185,9 @@ def align_scenes_to_audio(
             })
         return aligned
 
-    # Extract clean word list from Whisper
+    # Extract normalized words from Whisper
     w_clean_list = [_normalize_text(w["word"]) for w in whisper_words]
 
-    # Find starting word index for each scene in the whisper word stream
     scene_start_indices = []
     current_search_idx = 0
 
@@ -189,34 +199,40 @@ def align_scenes_to_audio(
 
         if s_idx == 0:
             scene_start_indices.append(0)
-            # Advance search index by roughly half of scene words
-            current_search_idx = min(len(scene_words), total_whisper_words - 1)
+            # Advance search cursor reasonably
+            current_search_idx = min(len(scene_words) // 2, total_whisper_words - 1)
             continue
 
-        # Look for the first 3-5 words of the scene in remaining whisper words
+        # Generate probes (e.g. first 4 words, and offset by 1 word in case Whisper dropped the first)
         probe_len = min(4, len(scene_words))
-        probe = " ".join(scene_words[:probe_len])
+        probes = [" ".join(scene_words[:probe_len])]
+        if len(scene_words) > probe_len:
+            probes.append(" ".join(scene_words[1:1 + probe_len]))
 
         best_idx = current_search_idx
         best_ratio = 0.0
 
-        # Slide search window from current_search_idx
-        search_range = range(
-            current_search_idx,
-            min(total_whisper_words - probe_len + 1, current_search_idx + 150)
-        )
+        # Search forward through the whisper words
+        search_range = range(current_search_idx, total_whisper_words - probe_len + 1)
 
         for w_i in search_range:
             candidate = " ".join(w_clean_list[w_i:w_i + probe_len])
-            ratio = difflib.SequenceMatcher(None, probe, candidate).ratio()
-            if ratio > best_ratio:
-                best_ratio = ratio
-                best_idx = w_i
-                if ratio > 0.85:
-                    break
+            for p in probes:
+                ratio = difflib.SequenceMatcher(None, p, candidate).ratio()
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    best_idx = w_i
+                    if ratio > 0.88:
+                        break
+            if best_ratio > 0.88:
+                break
+
+        # Ensure monotonic progression
+        if scene_start_indices and best_idx <= scene_start_indices[-1]:
+            best_idx = min(scene_start_indices[-1] + 1, total_whisper_words - 1)
 
         scene_start_indices.append(best_idx)
-        current_search_idx = max(current_search_idx + 1, best_idx + len(scene_words))
+        current_search_idx = max(best_idx + 1, min(best_idx + len(scene_words) // 2, total_whisper_words - 1))
 
     # Construct boundaries
     aligned_scenes = []
@@ -242,11 +258,10 @@ def align_scenes_to_audio(
             else:
                 end_time = audio_dur
 
-        # Ensure start < end and no gaps
+        # Ensure start < end and strictly continuous
         if end_time <= start_time:
             end_time = start_time + 1.0
 
-        # Associate word timestamps for subtitle generation
         end_w_idx = scene_start_indices[i + 1] if i + 1 < num_scenes else total_whisper_words
         scene_words_slice = whisper_words[start_w_idx:end_w_idx]
 
@@ -259,7 +274,7 @@ def align_scenes_to_audio(
             "words": scene_words_slice
         })
 
-    # Ensure last scene reaches full audio duration
+    # Guarantee last scene touches full audio duration
     if aligned_scenes:
         aligned_scenes[-1]["end"] = round(audio_dur, 3)
         aligned_scenes[-1]["duration"] = round(audio_dur - aligned_scenes[-1]["start"], 3)

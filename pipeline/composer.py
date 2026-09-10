@@ -7,12 +7,21 @@ import subprocess
 from typing import List, Dict, Any, Optional
 
 try:
-    from moviepy.editor import concatenate_videoclips, AudioFileClip
+    from moviepy.editor import concatenate_videoclips
 except ImportError:
-    from moviepy import concatenate_videoclips, AudioFileClip
+    from moviepy import concatenate_videoclips
 
-from .motion import create_ken_burns_clip, load_and_fit_image, TARGET_WIDTH, TARGET_HEIGHT
+from .motion import create_ken_burns_clip, TARGET_WIDTH, TARGET_HEIGHT
 from .subtitles import attach_subtitles_to_clip
+
+
+def _get_ffmpeg_exe() -> str:
+    """Finds ffmpeg executable using imageio_ffmpeg or system PATH."""
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return "ffmpeg"
 
 
 def find_matching_image(scene_id: str, images_source: Any) -> Optional[str]:
@@ -32,7 +41,6 @@ def find_matching_image(scene_id: str, images_source: Any) -> Optional[str]:
 
     candidates = []
     if isinstance(images_source, str) and os.path.isdir(images_source):
-        # Read files in directory
         for ext in ["png", "jpg", "jpeg", "webp"]:
             candidates.extend(glob.glob(os.path.join(images_source, f"*.{ext}")))
             candidates.extend(glob.glob(os.path.join(images_source, f"*.{ext.upper()}")))
@@ -47,17 +55,15 @@ def find_matching_image(scene_id: str, images_source: Any) -> Optional[str]:
             return images_source[clean_id]
         candidates = list(images_source.values())
 
-    # Match candidates
-    # Priority 1: Exact prefix or exact name (e.g. 001.png, 001_foo.png, flow_001_*.png)
+    # Priority 1: Exact filename match or exact token match (001.png, flow_001_..., scene_001)
     for path in candidates:
         basename = os.path.splitext(os.path.basename(path))[0]
-        # Check patterns like "001", "flow_001_...", "scene_001", "001-..."
         if basename == pad_id or basename == clean_id:
             return path
         if re.search(rf'(^|[^0-9]){pad_id}([^0-9]|$)', basename):
             return path
 
-    # Priority 2: Fallback to non-padded digit match
+    # Priority 2: Fallback to non-padded digit token match
     for path in candidates:
         basename = os.path.splitext(os.path.basename(path))[0]
         if re.search(rf'(^|[^0-9]){clean_id}([^0-9]|$)', basename):
@@ -91,90 +97,88 @@ def assemble_video(
 
     clips = []
     total_scenes = len(aligned_scenes)
-    modes = ["zoom_in", "zoom_out"]
+    # 4 dynamic cinematic movements
+    modes = ["zoom_in", "pan_left", "zoom_out", "pan_right"]
 
     print(f"[composer] Assembling {total_scenes} scenes...")
 
-    for idx, scene in enumerate(aligned_scenes):
-        scene_id = scene["id"]
-        duration = scene["duration"]
-        if duration <= 0.1:
-            duration = 1.0
+    try:
+        for idx, scene in enumerate(aligned_scenes):
+            scene_id = scene["id"]
+            duration = scene["duration"]
+            if duration <= 0.1:
+                duration = 1.0
+
+            if progress_callback:
+                progress_callback(idx / total_scenes, f"Processing scene {idx + 1}/{total_scenes} (ID: {scene_id})...")
+
+            # Find matching image
+            img_path = find_matching_image(scene_id, images_source)
+            if not img_path:
+                print(f"[composer] Warning: No image found for scene {scene_id}. Using cinematic placeholder slate.")
+                img_path = ""
+
+            # Create motion clip
+            mode = modes[idx % len(modes)] if enable_ken_burns else "static"
+            clip = create_ken_burns_clip(img_path, duration=duration, mode=mode, fps=fps, scene_id=scene_id)
+
+            # Attach subtitles
+            if enable_subtitles and scene.get("words"):
+                clip = attach_subtitles_to_clip(clip, scene, scene_start_offset=scene["start"])
+
+            clips.append(clip)
 
         if progress_callback:
-            progress_callback(idx / total_scenes, f"Processing scene {idx + 1}/{total_scenes} (ID: {scene_id})...")
+            progress_callback(0.85, "Rendering video stream...")
 
-        # Find matching image
-        img_path = find_matching_image(scene_id, images_source)
-        if not img_path:
-            print(f"[composer] Warning: No image found for scene {scene_id}. Using blank placeholder.")
-            img_path = ""
+        # Concatenate all clips
+        final_video = concatenate_videoclips(clips, method="compose")
 
-        # Create motion clip
-        mode = modes[idx % len(modes)] if enable_ken_burns else "static"
-        clip = create_ken_burns_clip(img_path, duration=duration, mode=mode, fps=fps)
+        # Render intermediate silent video
+        final_video.write_videofile(
+            temp_video_path,
+            fps=fps,
+            codec="libx264",
+            preset="fast",
+            audio=False,
+            threads=4
+        )
 
-        # Attach subtitles
-        if enable_subtitles and scene.get("words"):
-            clip = attach_subtitles_to_clip(clip, scene, scene_start_offset=scene["start"])
+        for c in clips:
+            try:
+                c.close()
+            except Exception:
+                pass
+        final_video.close()
 
-        clips.append(clip)
+        if progress_callback:
+            progress_callback(0.95, "Muxing master MP3 audio with FFmpeg...")
 
-    if progress_callback:
-        progress_callback(0.85, "Rendering video stream...")
+        ffmpeg_exe = _get_ffmpeg_exe()
+        ffmpeg_cmd = [
+            ffmpeg_exe, "-y",
+            "-i", temp_video_path,
+            "-i", audio_path,
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-shortest",
+            output_path
+        ]
 
-    # Concatenate all clips
-    final_video = concatenate_videoclips(clips, method="compose")
+        print(f"[composer] Running FFmpeg audio muxing: {' '.join(ffmpeg_cmd)}")
+        subprocess.run(ffmpeg_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-    # Render intermediate video
-    final_video.write_videofile(
-        temp_video_path,
-        fps=fps,
-        codec="libx264",
-        preset="fast",
-        audio=False,
-        threads=4
-    )
+        if progress_callback:
+            progress_callback(1.0, "Video generation complete!")
 
-    # Close moviepy clips
-    for c in clips:
-        try:
-            c.close()
-        except Exception:
-            pass
-    final_video.close()
+        print(f"[composer] Final synchronized video saved to: {output_path}")
+        return output_path
 
-    if progress_callback:
-        progress_callback(0.95, "Muxing master MP3 audio with FFmpeg...")
-
-    # Fast, lossless audio muxing with FFmpeg
-    # Merges original audio with video stream, trimming video or audio to exact match
-    try:
-        import imageio_ffmpeg
-        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-    except Exception:
-        ffmpeg_exe = "ffmpeg"
-
-    ffmpeg_cmd = [
-        ffmpeg_exe, "-y",
-        "-i", temp_video_path,
-        "-i", audio_path,
-        "-c:v", "copy",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-shortest",
-        output_path
-    ]
-
-    print(f"[composer] Running FFmpeg audio muxing: {' '.join(ffmpeg_cmd)}")
-    subprocess.run(ffmpeg_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-    # Clean up temp video
-    if os.path.exists(temp_video_path):
-        os.remove(temp_video_path)
-
-    if progress_callback:
-        progress_callback(1.0, "Video generation complete! 🎉")
-
-    print(f"[composer] Final synchronized video saved to: {output_path}")
-    return output_path
+    finally:
+        # Guarantee cleanup of temporary video
+        if os.path.exists(temp_video_path):
+            try:
+                os.remove(temp_video_path)
+            except Exception:
+                pass
