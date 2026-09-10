@@ -1,0 +1,20 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+venv/
+env/
+.venv/
+
+# Outputs and caches
+outputs/
+*.mp4
+*.mp3
+*.wav
+*.png
+*.jpg
+*.jpeg
+temp/
+.cache/

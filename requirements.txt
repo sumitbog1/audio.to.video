@@ -1,0 +1,8 @@
+# Core Dependencies for Audio-to-Video Sync Studio
+faster-whisper>=1.0.0
+moviepy==1.0.3
+Pillow>=9.0.0
+numpy>=1.22.0
+gradio>=4.0.0
+torch
+imageio-ffmpeg
