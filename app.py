@@ -5,124 +5,65 @@ import time
 import gradio as gr
 from pipeline.aligner import parse_scene_script, align_scenes_to_audio, get_audio_duration
 from pipeline.composer import assemble_video, find_matching_image
-from pipeline.tts import synthesize_scenes_to_master_mp3, get_voice_choices, DEFAULT_VOICE
+from pipeline.tts import (
+    synthesize_scenes_to_master_mp3,
+    synthesize_text_to_mp3,
+    get_voice_choices,
+    DEFAULT_VOICE
+)
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "outputs")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 # ----------------------------------------------------------------------
-# Tab 1: Script to AI Voice & Video
+# Tab 1: Script to MP3 Voiceover Only
 # ----------------------------------------------------------------------
 
-def generate_voice_only(script_text, voice, speed_percent, progress=gr.Progress()):
-    """Synthesizes master MP3 narration from script text."""
+def convert_script_to_mp3(script_text, voice, speed_percent, progress=gr.Progress()):
+    """Converts script text into high-quality Master MP3 audio."""
     if not script_text or not script_text.strip():
-        raise gr.Error("Please paste your scene narration script.")
+        raise gr.Error("Please paste your narration script.")
 
-    scenes = parse_scene_script(script_text)
-    if not scenes:
-        raise gr.Error("Could not parse numbered scenes (e.g. 001:, 002:).")
-
-    progress(0.1, desc="Synthesizing AI voice narration...")
+    progress(0.1, desc="Preparing voice synthesis...")
     timestamp = int(time.time())
     out_mp3 = os.path.join(OUTPUT_DIR, f"master_voice_{timestamp}.mp3")
 
-    def tts_cb(frac, desc):
-        progress(frac, desc=desc)
+    scenes = parse_scene_script(script_text)
+    if scenes:
+        def tts_cb(frac, desc):
+            progress(frac, desc=desc)
 
-    synthesize_scenes_to_master_mp3(
-        scenes=scenes,
-        voice=voice,
-        speed_percent=speed_percent,
-        output_path=out_mp3,
-        progress_callback=tts_cb
-    )
+        synthesize_scenes_to_master_mp3(
+            scenes=scenes,
+            voice=voice,
+            speed_percent=speed_percent,
+            output_path=out_mp3,
+            progress_callback=tts_cb
+        )
+    else:
+        progress(0.5, desc="Synthesizing continuous voice...")
+        synthesize_text_to_mp3(
+            text=script_text,
+            voice=voice,
+            speed_percent=speed_percent,
+            output_path=out_mp3
+        )
 
     total_dur = get_audio_duration(out_mp3)
-    return out_mp3, f"✅ Voice MP3 generated successfully! ({total_dur:.2f}s) Saved to: `{out_mp3}`"
+    status_msg = f"""
+### ✅ Master Voice MP3 Ready!
+- **Duration**: `{total_dur:.2f}s`
+- **File**: `{os.path.basename(out_mp3)}`
+- **Path**: `{out_mp3}`
 
-
-def generate_full_from_script(
-    script_text,
-    voice,
-    speed_percent,
-    images_files,
-    folder_path,
-    enable_subtitles,
-    enable_ken_burns,
-    whisper_model,
-    language_choice,
-    progress=gr.Progress()
-):
-    """1-Click: Synthesizes AI voice narration, aligns scenes, and generates full 1080p video."""
-    if not script_text or not script_text.strip():
-        raise gr.Error("Please paste your scene narration script.")
-
-    scenes = parse_scene_script(script_text)
-    if not scenes:
-        raise gr.Error("Could not parse numbered scenes (e.g. 001:, 002:).")
-
-    # 1. Synthesize Master Audio
-    progress(0.05, desc="Synthesizing AI speech narration...")
-    timestamp = int(time.time())
-    master_mp3 = os.path.join(OUTPUT_DIR, f"master_voice_{timestamp}.mp3")
-
-    def tts_cb(frac, desc):
-        progress(0.05 + frac * 0.25, desc=desc)
-
-    synthesize_scenes_to_master_mp3(
-        scenes=scenes,
-        voice=voice,
-        speed_percent=speed_percent,
-        output_path=master_mp3,
-        progress_callback=tts_cb
-    )
-
-    # 2. Gather image sources
-    img_src = folder_path.strip() if folder_path and os.path.isdir(folder_path.strip()) else []
-    if not img_src and images_files:
-        img_src = [f.name if hasattr(f, "name") else f for f in images_files]
-
-    # 3. Forced Alignment with Whisper
-    progress(0.35, desc=f"Aligning narration with Faster-Whisper ({whisper_model})...")
-    lang = None if language_choice == "Auto-Detect" else language_choice.lower()
-    aligned = align_scenes_to_audio(scenes, master_mp3, model_size=whisper_model, language=lang)
-
-    # 4. Video Assembly
-    out_video = os.path.join(OUTPUT_DIR, f"synced_video_{timestamp}.mp4")
-
-    def comp_cb(frac, desc):
-        progress(0.45 + frac * 0.50, desc=desc)
-
-    assemble_video(
-        aligned_scenes=aligned,
-        images_source=img_src,
-        audio_path=master_mp3,
-        output_path=out_video,
-        enable_subtitles=enable_subtitles,
-        enable_ken_burns=enable_ken_burns,
-        fps=24,
-        progress_callback=comp_cb
-    )
-
-    # Build preview table
-    md = [
-        f"### 🎵 Generated Voice Duration: `{get_audio_duration(master_mp3):.2f}s` | Total Scenes: `{len(aligned)}`\n",
-        "| Scene ID | Start Time | End Time | Duration | Matching Image | Spoken Text Preview |",
-        "| :--- | :--- | :--- | :--- | :--- | :--- |"
-    ]
-    for s in aligned:
-        matched_img = find_matching_image(s["id"], img_src)
-        img_status = f"✅ `{os.path.basename(matched_img)}`" if matched_img else "🎨 *Cinematic Slate*"
-        preview_text = s['text'][:45] + ("..." if len(s['text']) > 45 else "")
-        md.append(f"| **{s['id']}** | `{s['start']:.2f}s` | `{s['end']:.2f}s` | `{s['duration']:.2f}s` | {img_status} | {preview_text} |")
-
-    return master_mp3, out_video, f"✅ Complete video & voice generated successfully! Saved to: `{out_video}`", "\n".join(md)
+💡 *You can listen to or download the MP3 above, or go to **Tab 2** to sync it with your images!*
+"""
+    return out_mp3, status_msg
 
 
 # ----------------------------------------------------------------------
-# Tab 2: Existing Master Audio Sync
+# Tab 2: Audio-to-Video Sync Studio (Audio + Images -> Video)
 # ----------------------------------------------------------------------
 
 def preview_alignment(audio_file, script_text, images_files, folder_path, model_size, language_choice):
@@ -219,9 +160,8 @@ def build_full_video_existing_audio(
 # ----------------------------------------------------------------------
 
 custom_css = """
-.gradio-container { max-width: 1250px !important; margin: auto; }
+.gradio-container { max-width: 1200px !important; margin: auto; }
 .header-box { text-align: center; margin-bottom: 20px; }
-.action-btn-primary { background: linear-gradient(90deg, #2563eb, #3b82f6) !important; color: white !important; font-weight: 600; }
 """
 
 sample_script = """001: Most people do not truly seek freedom.
@@ -232,21 +172,21 @@ with gr.Blocks(title="Audio.to.Video Studio", css=custom_css, theme=gr.themes.De
     gr.Markdown(
         """
         # 🎬 Audio-to-Video Studio
-        ### Professional 1080p Video Creation from Text Scripts, AI Voices, and Numbered Images (`001.png`...)
+        ### Convert Scripts to AI Voiceover MP3 & Sync Master Audio with Numbered Images (`001.png`...)
         """,
         elem_classes=["header-box"]
     )
 
     with gr.Tabs():
-        # TAB 1: SCRIPT TO AI VOICE & VIDEO
-        with gr.TabItem("🎙️ 1. Script to AI Voice & Video (Full Auto)"):
+        # TAB 1: SCRIPT TO MP3 CONVERTER
+        with gr.TabItem("🎙️ 1. Script to MP3 Converter"):
             with gr.Row():
                 with gr.Column(scale=5):
-                    gr.Markdown("### 📝 Script & Voice Settings")
+                    gr.Markdown("### 📝 Narration Script Input")
                     t1_script = gr.Textbox(
-                        label="Numbered Scene Script",
-                        lines=8,
-                        placeholder="001: Scene one text...\n002: Scene two text...\n003: Scene three text...",
+                        label="Script Text (Numbered scenes or plain text)",
+                        lines=10,
+                        placeholder="001: In the quiet dawn of curiosity...\n002: Thinkers looked up at the stars...\n003: Today we continue that journey...",
                         value=sample_script
                     )
 
@@ -264,65 +204,28 @@ with gr.Blocks(title="Audio.to.Video Studio", css=custom_css, theme=gr.themes.De
                             value=0
                         )
 
-                    with gr.Accordion("🖼️ Scene Images (001.png, 002.png...)", open=True):
-                        t1_folder = gr.Textbox(
-                            label="📁 Local Images Folder Path (Optional)",
-                            placeholder=r"e.g. D:\Projects\images"
-                        )
-                        t1_images = gr.File(
-                            label="📤 Upload Numbered Image Files",
-                            file_count="multiple",
-                            file_types=["image"]
-                        )
-
-                    with gr.Row():
-                        t1_ken_burns = gr.Checkbox(label="🎥 Ken Burns Motion (Pan & Zoom)", value=True)
-                        t1_subtitles = gr.Checkbox(label="💬 Universal UI Subtitles", value=True)
-
-                    with gr.Row():
-                        t1_voice_btn = gr.Button("🎙️ 1. Generate Voice MP3 Only", variant="secondary")
-                        t1_full_btn = gr.Button("⚡ 2. Generate Complete 1080p Video", variant="primary")
+                    t1_convert_btn = gr.Button("🎙️ Convert Script to MP3", variant="primary")
 
                 with gr.Column(scale=5):
-                    gr.Markdown("### 🎞️ Output & Preview")
-                    t1_audio_out = gr.Audio(label="🎵 Master Voice Narration (MP3)", interactive=False)
-                    t1_video_out = gr.Video(label="🎬 Final Synchronized Video (1080p)", interactive=False)
-                    t1_status = gr.Markdown("Status: *Ready to generate.*")
+                    gr.Markdown("### 🎵 Output MP3 Audio Player")
+                    t1_audio_out = gr.Audio(label="Master Voice Narration (MP3)", interactive=False)
+                    t1_status = gr.Markdown("Status: *Ready. Paste your script and click 'Convert Script to MP3'.*")
 
-                    with gr.Accordion("📊 Scene Timing Inspector", open=False):
-                        t1_timing_md = gr.Markdown("Scene timings will appear here after generation.")
-
-            # Tab 1 Events
-            t1_voice_btn.click(
-                fn=generate_voice_only,
+            # Tab 1 Event
+            t1_convert_btn.click(
+                fn=convert_script_to_mp3,
                 inputs=[t1_script, t1_voice, t1_speed],
                 outputs=[t1_audio_out, t1_status]
             )
 
-            t1_full_btn.click(
-                fn=generate_full_from_script,
-                inputs=[
-                    t1_script,
-                    t1_voice,
-                    t1_speed,
-                    t1_images,
-                    t1_folder,
-                    t1_subtitles,
-                    t1_ken_burns,
-                    gr.State("base"),
-                    gr.State("Auto-Detect")
-                ],
-                outputs=[t1_audio_out, t1_video_out, t1_status, t1_timing_md]
-            )
-
-        # TAB 2: EXISTING AUDIO SYNC
-        with gr.TabItem("🎵 2. Sync Existing Audio File (Master MP3)"):
+        # TAB 2: AUDIO-TO-VIDEO SYNC STUDIO
+        with gr.TabItem("🎬 2. Audio-to-Video Sync Studio (Audio + Images -> 1080p Video)"):
             with gr.Row():
                 with gr.Column(scale=5):
-                    gr.Markdown("### 🎵 Audio & Script Input")
+                    gr.Markdown("### 🎵 Master Audio & Script")
                     t2_audio = gr.Audio(label="Upload Master MP3/WAV Audio", type="filepath")
                     t2_script = gr.Textbox(
-                        label="Numbered Scene Script",
+                        label="Numbered Scene Script (001:, 002:...)",
                         lines=8,
                         placeholder="001: Scene one text...\n002: Scene two text...",
                         value=sample_script
@@ -348,11 +251,11 @@ with gr.Blocks(title="Audio.to.Video Studio", css=custom_css, theme=gr.themes.De
                         t2_generate_btn = gr.Button("🚀 Generate Synced Video", variant="primary")
 
                 with gr.Column(scale=5):
-                    gr.Markdown("### 🎞️ Output & Timing Inspector")
+                    gr.Markdown("### 🎞️ Output Video & Inspector")
                     t2_video_out = gr.Video(label="🎬 Synchronized 1080p Video", interactive=False)
                     t2_status = gr.Markdown("Status: *Ready.*")
 
-                    with gr.Accordion("📊 Detected Scene Timestamps & Matching", open=True):
+                    with gr.Accordion("📊 Detected Scene Timestamps & Image Matching", open=True):
                         t2_timing_md = gr.Markdown("Click **'Preview Scene Timestamps'** to inspect audio alignment.")
 
             # Tab 2 Events
