@@ -378,4 +378,4 @@ with gr.Blocks(title="Audio.to.Video Studio", css=custom_css, theme=gr.themes.De
             )
 
 if __name__ == "__main__":
-    demo.launch(server_name="127.0.0.1", server_port=7861)
+    demo.launch(server_name="127.0.0.1", server_port=7861, inbrowser=True)
