@@ -1,4 +1,8 @@
-"""Local Image Generator using cached Dreamshaper-8 (SD1.5) on CUDA GPU."""
+"""
+Minimalist Editorial Line-Art Image Generator (Dan Koe / Atomic Habits style).
+Fast local diffusion pipeline on CUDA GPU producing clean black-ink editorial illustrations
+on flat warm cream canvas background.
+"""
 
 import os
 import gc
@@ -8,6 +12,19 @@ from PIL import Image
 
 _pipe = None
 MODEL_ID = "Lykon/dreamshaper-8"
+
+# Tailored aesthetic prompt & negative prompt for Dan Koe / Atomic Habits style
+EDITORIAL_STYLE_SUFFIX = (
+    ", minimalist editorial line art illustration, hand-drawn black ink pen sketch, "
+    "flat warm cream canvas background, Dan Koe aesthetic, Atomic Habits book illustration, "
+    "clean conceptual diagram, high contrast monochrome drawing"
+)
+
+DEFAULT_NEGATIVE_PROMPT = (
+    "photorealistic, 3d render, cgi, realistic photo, colorful gradients, "
+    "vibrant saturated colors, neon, blurry, dark background, wooden table, "
+    "desk, frame, margins, borders, low quality, distorted anatomy, extra limbs"
+)
 
 
 def get_image_pipeline():
@@ -20,7 +37,7 @@ def get_image_pipeline():
         device = "cuda" if torch.cuda.is_available() else "cpu"
         dtype = torch.float16 if device == "cuda" else torch.float32
 
-        print(f"[image_gen] Loading local '{MODEL_ID}' on {device} ({dtype})...")
+        print(f"[image_gen] Loading local line-art model '{MODEL_ID}' on {device} ({dtype})...")
         try:
             _pipe = AutoPipelineForText2Image.from_pretrained(
                 MODEL_ID,
@@ -37,7 +54,6 @@ def get_image_pipeline():
             ).to(device)
 
         if device == "cuda":
-            # Enable memory efficient attention if available
             try:
                 _pipe.enable_attention_slicing()
             except Exception:
@@ -59,32 +75,40 @@ def unload_image_model():
                 torch.cuda.empty_cache()
         except Exception:
             pass
-        print("[image_gen] Diffusion model unloaded from VRAM.")
+        print("[image_gen] Line-art diffusion model unloaded from VRAM.")
+
+
+def prepare_editorial_prompt(prompt: str) -> str:
+    """Ensures prompt adheres to minimalist editorial line art aesthetic on warm cream background."""
+    p = prompt.strip()
+    keywords = ["minimalist", "editorial", "dan koe", "line art", "line-art", "atomic habits"]
+    if not any(k in p.lower() for k in keywords):
+        p = f"{p}{EDITORIAL_STYLE_SUFFIX}"
+    elif "cream" not in p.lower() and "canvas" not in p.lower() and "background" not in p.lower():
+        p = f"{p}, flat warm cream canvas background, clean black ink line art"
+    return p
 
 
 def generate_single_image(
     prompt: str,
     output_path: str,
-    negative_prompt: str = "ugly, blurry, low quality, distorted, extra limbs, bad anatomy",
+    negative_prompt: str = DEFAULT_NEGATIVE_PROMPT,
     width: int = 768,
     height: int = 512,
-    num_steps: int = 20,
-    guidance_scale: float = 7.0
+    num_steps: int = 25,
+    guidance_scale: float = 7.5
 ) -> str:
-    """Generates a single image from text prompt and saves to output_path."""
+    """Generates a single minimalist editorial line-art image from text prompt."""
     if not prompt or not prompt.strip():
         raise ValueError("Prompt cannot be empty.")
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     pipe = get_image_pipeline()
 
-    # Append quality booster tags
-    clean_prompt = prompt.strip()
-    if not any(k in clean_prompt.lower() for k in ["photorealistic", "cinematic", "8k", "masterpiece", "detailed"]):
-        clean_prompt += ", cinematic lighting, detailed, 8k"
+    final_prompt = prepare_editorial_prompt(prompt)
 
     image = pipe(
-        prompt=clean_prompt,
+        prompt=final_prompt,
         negative_prompt=negative_prompt,
         width=width,
         height=height,
@@ -99,14 +123,15 @@ def generate_single_image(
 def generate_bulk_images(
     prompts_text: str,
     output_dir: str,
-    negative_prompt: str = "ugly, blurry, low quality, distorted, bad anatomy",
+    negative_prompt: str = DEFAULT_NEGATIVE_PROMPT,
     width: int = 768,
     height: int = 512,
-    num_steps: int = 20,
+    num_steps: int = 25,
+    guidance_scale: float = 7.5,
     progress_callback = None
 ) -> List[str]:
     """
-    Generates images in bulk from simple text lines (1 prompt per line).
+    Generates minimalist editorial line-art images in bulk from simple text lines (1 prompt per line).
     Automatically saves them as 001.png, 002.png, 003.png...
     matching Tab 2's scene image expectations!
     """
@@ -125,25 +150,23 @@ def generate_bulk_images(
         file_path = os.path.join(output_dir, f"{scene_num}.png")
 
         if progress_callback:
-            progress_callback(idx / total, f"Generating image {idx + 1}/{total} ({scene_num}.png)...")
+            progress_callback(idx / total, f"Generating line-art illustration {idx + 1}/{total} ({scene_num}.png)...")
 
-        clean_prompt = prompt
-        if not any(k in clean_prompt.lower() for k in ["photorealistic", "cinematic", "8k", "masterpiece"]):
-            clean_prompt += ", cinematic lighting, detailed, 8k"
+        final_prompt = prepare_editorial_prompt(prompt)
 
         img = pipe(
-            prompt=clean_prompt,
+            prompt=final_prompt,
             negative_prompt=negative_prompt,
             width=width,
             height=height,
             num_inference_steps=num_steps,
-            guidance_scale=7.0
+            guidance_scale=guidance_scale
         ).images[0]
 
         img.save(file_path)
         created_paths.append(file_path)
 
     if progress_callback:
-        progress_callback(1.0, "All images generated successfully!")
+        progress_callback(1.0, "All line-art scene images generated successfully!")
 
     return created_paths

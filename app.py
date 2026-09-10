@@ -235,9 +235,9 @@ sample_script = """Most people do not truly seek freedom.
 They seek comfort, security, and certainty in an unpredictable world.
 But he who dares to face the silence of his own mind unlocks an eternal power."""
 
-sample_prompts = """Cinematic wide shot of an ancient philosopher looking up at a starry night sky, dramatic lighting, 8k
-Cozy ancient library filled with dusty scrolls, glowing warm candles, golden hour
-Majestic mountain peak at sunrise above clouds, epic landscape photography, 8k"""
+sample_prompts = """Stickman sitting on a wooden stool surrounded by clocks and circular cycle arrows, unfinished task
+Minimalist diagram of two paths diverging, one easy with traps and one hard leading to mastery
+Stick figure focused at a simple desk with a single bright lightbulb and focus arrows"""
 
 with gr.Blocks(title="Audio.to.Video Studio", css=custom_css, theme=gr.themes.Default()) as demo:
     gr.Markdown(
@@ -360,16 +360,17 @@ with gr.Blocks(title="Audio.to.Video Studio", css=custom_css, theme=gr.themes.De
             )
 
         # --------------------------------------------------------------
-        # TAB 3: LOCAL IMAGE GENERATOR (SD1.5 DREAMSHAPER)
+        # TAB 3: MINIMALIST LINE-ART STUDIO (DAN KOE / ATOMIC HABITS)
         # --------------------------------------------------------------
-        with gr.TabItem("3. Local Image Generator"):
+        with gr.TabItem("3. Minimalist Line-Art Studio"):
             with gr.Row():
                 with gr.Column(scale=5):
-                    gr.Markdown("### Image Prompts Input (Simple Text Lines)")
+                    gr.Markdown("### Minimalist Editorial Line-Art Prompts")
+                    gr.Markdown("*Generates clean black-ink illustrations on warm cream canvas (Dan Koe / Atomic Habits style).*")
                     t3_prompts = gr.Textbox(
-                        label="Prompts (1 prompt per line, generates 001.png, 002.png...)",
-                        lines=9,
-                        placeholder="Line 1: Ancient philosopher under stars, 8k\nLine 2: Ancient library with scrolls and candles\nLine 3: Mountain peak sunrise above clouds...",
+                        label="Scene Prompts (1 prompt per line, generates 001.png, 002.png...)",
+                        lines=8,
+                        placeholder="Line 1: Stickman sitting on a stool surrounded by clocks and cycle arrows\nLine 2: Minimalist diagram of two diverging habit paths\nLine 3: Stick figure focused with a bright lightbulb...",
                         value=sample_prompts
                     )
 
@@ -380,13 +381,13 @@ with gr.Blocks(title="Audio.to.Video Studio", css=custom_css, theme=gr.themes.De
                             value="16:9 Widescreen (768x512)"
                         )
 
-                    t3_gen_btn = gr.Button("Generate Images (001.png, 002.png...)", variant="primary")
+                    t3_gen_btn = gr.Button("Generate Line-Art Images (001.png, 002.png...)", variant="primary")
 
                 with gr.Column(scale=5):
-                    gr.Markdown("### Generated Images Gallery")
-                    t3_gallery = gr.Gallery(label="Output Images", columns=3, height="auto")
-                    t3_status = gr.Markdown("Status: *Ready. Enter prompts and click Generate.*")
-                    gr.Markdown(f"💡 *Generated images are saved into `{IMAGES_DIR}` as `001.png`, `002.png`... and can be directly used in Tab 2!*")
+                    gr.Markdown("### Generated Line-Art Gallery")
+                    t3_gallery = gr.Gallery(label="Output Illustrations", columns=3, height="auto")
+                    t3_status = gr.Markdown("Status: *Ready. Enter scene prompts and click 'Generate Line-Art Images'.*")
+                    gr.Markdown(f"💡 *Generated illustrations are saved into `{IMAGES_DIR}` as `001.png`, `002.png`... and automatically match in Tab 2!*")
 
             # Tab 3 Event
             t3_gen_btn.click(
