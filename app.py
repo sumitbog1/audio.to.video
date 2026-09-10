@@ -20,7 +20,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # Tab 1: Script to MP3 Voiceover Only
 # ----------------------------------------------------------------------
 
-def convert_script_to_mp3(script_text, voice, speed_percent, progress=gr.Progress()):
+def convert_script_to_mp3(script_text, voice, progress=gr.Progress()):
     """Converts simple script text lines into a continuous Master MP3 voiceover."""
     if not script_text or not script_text.strip():
         raise gr.Error("Please enter your narration script text.")
@@ -32,7 +32,7 @@ def convert_script_to_mp3(script_text, voice, speed_percent, progress=gr.Progres
     synthesize_text_to_mp3(
         text=script_text,
         voice=voice,
-        speed_percent=speed_percent,
+        speed_percent=0,
         output_path=out_mp3
     )
 
@@ -176,19 +176,11 @@ with gr.Blocks(title="Audio.to.Video Studio", css=custom_css, theme=gr.themes.De
                         value=sample_script
                     )
 
-                    with gr.Row():
-                        t1_voice = gr.Dropdown(
-                            label="Narrator Voice",
-                            choices=get_voice_choices(),
-                            value=DEFAULT_VOICE
-                        )
-                        t1_speed = gr.Slider(
-                            label="Speech Speed (%)",
-                            minimum=-25,
-                            maximum=25,
-                            step=1,
-                            value=0
-                        )
+                    t1_voice = gr.Dropdown(
+                        label="Narrator Voice",
+                        choices=get_voice_choices(),
+                        value=DEFAULT_VOICE
+                    )
 
                     t1_convert_btn = gr.Button("🎙️ Convert Script to MP3", variant="primary")
 
@@ -200,7 +192,7 @@ with gr.Blocks(title="Audio.to.Video Studio", css=custom_css, theme=gr.themes.De
             # Tab 1 Event
             t1_convert_btn.click(
                 fn=convert_script_to_mp3,
-                inputs=[t1_script, t1_voice, t1_speed],
+                inputs=[t1_script, t1_voice],
                 outputs=[t1_audio_out, t1_status]
             )
 
