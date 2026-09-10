@@ -11,9 +11,12 @@ from pipeline.tts import (
     get_voice_choices,
     DEFAULT_VOICE
 )
+from pipeline.image_gen import generate_bulk_images, generate_single_image
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "outputs")
+IMAGES_DIR = os.path.join(OUTPUT_DIR, "generated_images")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(IMAGES_DIR, exist_ok=True)
 
 
 # ----------------------------------------------------------------------
@@ -69,6 +72,10 @@ def preview_alignment(audio_file, script_text, images_files, folder_path, model_
         img_src = folder_path.strip() if folder_path and os.path.isdir(folder_path.strip()) else []
         if not img_src and images_files:
             img_src = [f.name if hasattr(f, "name") else f for f in images_files]
+
+        # Default fallback to generated_images if empty
+        if not img_src and os.path.isdir(IMAGES_DIR) and len(os.listdir(IMAGES_DIR)) > 0:
+            img_src = IMAGES_DIR
 
         progress(0.3, desc=f"Loading Whisper ({model_size})...")
         total_dur = get_audio_duration(audio_path)
@@ -132,6 +139,10 @@ def build_full_video_existing_audio(
         if not img_src and images_files:
             img_src = [f.name if hasattr(f, "name") else f for f in images_files]
 
+        # Default fallback to generated_images if empty
+        if not img_src and os.path.isdir(IMAGES_DIR) and len(os.listdir(IMAGES_DIR)) > 0:
+            img_src = IMAGES_DIR
+
         progress(0.20, desc=f"Aligning with Faster-Whisper ({model_size})...")
         aligned = align_scenes_to_audio(scenes, audio_path, model_size=model_size)
         total_dur = get_audio_duration(audio_path)
@@ -175,6 +186,43 @@ def build_full_video_existing_audio(
 
 
 # ----------------------------------------------------------------------
+# Tab 3: Local Image Generator (SD1.5 Dreamshaper on GPU)
+# ----------------------------------------------------------------------
+
+def generate_local_images_flow(prompts_text, aspect_ratio, progress=gr.Progress(track_tqdm=True)):
+    """Generates images in bulk from simple text lines (1 per line) saving to outputs/generated_images/ as 001.png, 002.png..."""
+    if not prompts_text or not prompts_text.strip():
+        return [], "Status: **Error:** Please enter at least 1 image prompt."
+
+    try:
+        if "Square" in aspect_ratio:
+            w, h = 512, 512
+        elif "Vertical" in aspect_ratio:
+            w, h = 512, 768
+        else:
+            w, h = 768, 512
+
+        def p_cb(frac, desc):
+            progress(frac, desc=desc)
+
+        created_files = generate_bulk_images(
+            prompts_text=prompts_text,
+            output_dir=IMAGES_DIR,
+            width=w,
+            height=h,
+            num_steps=20,
+            progress_callback=p_cb
+        )
+
+        count = len(created_files)
+        msg = f"Status: **Success!** Generated {count} images (001.png... to {count:03d}.png). Saved to: `{IMAGES_DIR}`"
+        return created_files, msg
+
+    except Exception as e:
+        return [], f"Status: **Error:** {str(e)}"
+
+
+# ----------------------------------------------------------------------
 # Gradio Studio Layout (Clean, Minimal & Black-and-White)
 # ----------------------------------------------------------------------
 
@@ -187,11 +235,15 @@ sample_script = """Most people do not truly seek freedom.
 They seek comfort, security, and certainty in an unpredictable world.
 But he who dares to face the silence of his own mind unlocks an eternal power."""
 
+sample_prompts = """Cinematic wide shot of an ancient philosopher looking up at a starry night sky, dramatic lighting, 8k
+Cozy ancient library filled with dusty scrolls, glowing warm candles, golden hour
+Majestic mountain peak at sunrise above clouds, epic landscape photography, 8k"""
+
 with gr.Blocks(title="Audio.to.Video Studio", css=custom_css, theme=gr.themes.Default()) as demo:
     gr.Markdown(
         """
         # Audio-to-Video Studio
-        ### Convert Scripts to AI Voiceover MP3 & Sync Master Audio with Numbered Images
+        ### Convert Scripts to Voiceover MP3, Generate Scene Images & Sync into 1080p Video
         """,
         elem_classes=["header-box"]
     )
@@ -250,7 +302,8 @@ with gr.Blocks(title="Audio.to.Video Studio", css=custom_css, theme=gr.themes.De
                     with gr.Accordion("Scene Images (*001*, (001), 001.png...)", open=True):
                         t2_folder = gr.Textbox(
                             label="Local Images Folder Path (Optional)",
-                            placeholder=r"e.g. D:\Projects\images"
+                            placeholder=r"e.g. outputs\generated_images",
+                            value=r"outputs\generated_images"
                         )
                         t2_images = gr.File(
                             label="Upload Numbered Image Files",
@@ -304,6 +357,42 @@ with gr.Blocks(title="Audio.to.Video Studio", css=custom_css, theme=gr.themes.De
                     t2_model
                 ],
                 outputs=[t2_video_out, t2_status, t2_grid]
+            )
+
+        # --------------------------------------------------------------
+        # TAB 3: LOCAL IMAGE GENERATOR (SD1.5 DREAMSHAPER)
+        # --------------------------------------------------------------
+        with gr.TabItem("3. Local Image Generator"):
+            with gr.Row():
+                with gr.Column(scale=5):
+                    gr.Markdown("### Image Prompts Input (Simple Text Lines)")
+                    t3_prompts = gr.Textbox(
+                        label="Prompts (1 prompt per line, generates 001.png, 002.png...)",
+                        lines=9,
+                        placeholder="Line 1: Ancient philosopher under stars, 8k\nLine 2: Ancient library with scrolls and candles\nLine 3: Mountain peak sunrise above clouds...",
+                        value=sample_prompts
+                    )
+
+                    with gr.Row():
+                        t3_aspect = gr.Dropdown(
+                            label="Aspect Ratio",
+                            choices=["16:9 Widescreen (768x512)", "Square (512x512)", "9:16 Vertical (512x768)"],
+                            value="16:9 Widescreen (768x512)"
+                        )
+
+                    t3_gen_btn = gr.Button("Generate Images (001.png, 002.png...)", variant="primary")
+
+                with gr.Column(scale=5):
+                    gr.Markdown("### Generated Images Gallery")
+                    t3_gallery = gr.Gallery(label="Output Images", columns=3, height="auto")
+                    t3_status = gr.Markdown("Status: *Ready. Enter prompts and click Generate.*")
+                    gr.Markdown(f"💡 *Generated images are saved into `{IMAGES_DIR}` as `001.png`, `002.png`... and can be directly used in Tab 2!*")
+
+            # Tab 3 Event
+            t3_gen_btn.click(
+                fn=generate_local_images_flow,
+                inputs=[t3_prompts, t3_aspect],
+                outputs=[t3_gallery, t3_status]
             )
 
 if __name__ == "__main__":
