@@ -43,11 +43,18 @@ def resolve_voice_id(voice_name: str) -> str:
 
 
 def _clean_text_for_tts(text: str) -> str:
-    """Strips scene prefixes (e.g. '001:', 'Scene 001 - ') and clean formatting."""
-    t = re.sub(r'^\s*(?:scene\s*)?(?:\[\s*)?\d{1,4}(?:\s*\])?(?:\s*[:\-\.\)\_]\s*|\s+)', '', text, flags=re.IGNORECASE)
-    # Normalize double spaces and quotes
-    t = re.sub(r'\s+', ' ', t).strip()
-    return t
+    """Cleans simple text lines and ensures natural pauses between lines."""
+    lines = [line.strip() for line in text.strip().split("\n") if line.strip()]
+    cleaned_lines = []
+    for line in lines:
+        # Strip any prefix like 001:, Scene 1: if present
+        l = re.sub(r'^\s*(?:scene\s*)?(?:\[\s*)?\d{1,4}(?:\s*\])?(?:\s*[:\-\.\)\_]\s*|\s+)', '', line, flags=re.IGNORECASE).strip()
+        if l:
+            # Ensure line ends with punctuation so speech engine takes a natural breath
+            if l[-1] not in [".", "!", "?", ",", ";", ":", "—", "-"]:
+                l += "."
+            cleaned_lines.append(l)
+    return " ".join(cleaned_lines)
 
 
 async def _synthesize_clip_async(text: str, voice_id: str, rate_str: str, out_file: str):

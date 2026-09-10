@@ -83,31 +83,41 @@ def transcribe_audio_words(
 def parse_scene_script(script_text: str) -> List[Dict[str, Any]]:
     """
     Parses user script into individual scene blocks.
-    Supports formats like:
-      001: Narration text...
-      001 - Narration text...
-      001 Narration text...
-      Scene 001: Narration text...
-      [001] Narration text...
+    Supports both:
+      1. Numbered format: 001: Narration text..., Scene 001: Narration text...
+      2. Simple text lines: line 1 -> Scene 001, line 2 -> Scene 002, etc. (no splitting required)
     """
     if not script_text or not script_text.strip():
         return []
 
-    lines = script_text.strip().split("\n")
-    scenes = []
-    current_id = None
-    current_lines = []
+    lines = [line.strip() for line in script_text.strip().split("\n") if line.strip()]
+    if not lines:
+        return []
 
     header_pattern = re.compile(
         r'^\s*(?:scene\s*)?(?:\[\s*)?(\d{1,4})(?:\s*\])?(?:\s*[:\-\.\)\_]\s*|\s+)(.*)$',
         re.IGNORECASE
     )
 
-    for line in lines:
-        line_str = line.strip()
-        if not line_str:
-            continue
+    # Check if any line has an explicit numbered scene header
+    has_headers = any(header_pattern.match(line) for line in lines)
 
+    if not has_headers:
+        # Simple text lines: each line is automatically a scene (001, 002, 003...)
+        scenes = []
+        for i, line in enumerate(lines):
+            scenes.append({
+                "id": str(i + 1).zfill(3),
+                "text": line
+            })
+        return scenes
+
+    # Header-based parsing
+    scenes = []
+    current_id = None
+    current_lines = []
+
+    for line_str in lines:
         match = header_pattern.match(line_str)
         if match:
             raw_id = match.group(1)

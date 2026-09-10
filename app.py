@@ -21,34 +21,20 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # ----------------------------------------------------------------------
 
 def convert_script_to_mp3(script_text, voice, speed_percent, progress=gr.Progress()):
-    """Converts script text into high-quality Master MP3 audio."""
+    """Converts simple script text lines into a continuous Master MP3 voiceover."""
     if not script_text or not script_text.strip():
-        raise gr.Error("Please paste your narration script.")
+        raise gr.Error("Please enter your narration script text.")
 
-    progress(0.1, desc="Preparing voice synthesis...")
+    progress(0.2, desc="Synthesizing narration voiceover...")
     timestamp = int(time.time())
     out_mp3 = os.path.join(OUTPUT_DIR, f"master_voice_{timestamp}.mp3")
 
-    scenes = parse_scene_script(script_text)
-    if scenes:
-        def tts_cb(frac, desc):
-            progress(frac, desc=desc)
-
-        synthesize_scenes_to_master_mp3(
-            scenes=scenes,
-            voice=voice,
-            speed_percent=speed_percent,
-            output_path=out_mp3,
-            progress_callback=tts_cb
-        )
-    else:
-        progress(0.5, desc="Synthesizing continuous voice...")
-        synthesize_text_to_mp3(
-            text=script_text,
-            voice=voice,
-            speed_percent=speed_percent,
-            output_path=out_mp3
-        )
+    synthesize_text_to_mp3(
+        text=script_text,
+        voice=voice,
+        speed_percent=speed_percent,
+        output_path=out_mp3
+    )
 
     total_dur = get_audio_duration(out_mp3)
     status_msg = f"""
@@ -57,7 +43,7 @@ def convert_script_to_mp3(script_text, voice, speed_percent, progress=gr.Progres
 - **File**: `{os.path.basename(out_mp3)}`
 - **Path**: `{out_mp3}`
 
-💡 *You can listen to or download the MP3 above, or go to **Tab 2** to sync it with your images!*
+💡 *You can listen to or download the MP3 above, or go to **Tab 2** to sync it with your images into a 1080p video!*
 """
     return out_mp3, status_msg
 
@@ -164,9 +150,9 @@ custom_css = """
 .header-box { text-align: center; margin-bottom: 20px; }
 """
 
-sample_script = """001: Most people do not truly seek freedom.
-002: They seek comfort, security, and certainty in an unpredictable world.
-003: But he who dares to face the silence of his own mind unlocks an eternal power."""
+sample_script = """Most people do not truly seek freedom.
+They seek comfort, security, and certainty in an unpredictable world.
+But he who dares to face the silence of his own mind unlocks an eternal power."""
 
 with gr.Blocks(title="Audio.to.Video Studio", css=custom_css, theme=gr.themes.Default()) as demo:
     gr.Markdown(
@@ -182,11 +168,11 @@ with gr.Blocks(title="Audio.to.Video Studio", css=custom_css, theme=gr.themes.De
         with gr.TabItem("🎙️ 1. Script to MP3 Converter"):
             with gr.Row():
                 with gr.Column(scale=5):
-                    gr.Markdown("### 📝 Narration Script Input")
+                    gr.Markdown("### 📝 Narration Script Input (Simple Text Lines)")
                     t1_script = gr.Textbox(
-                        label="Script Text (Numbered scenes or plain text)",
+                        label="Narration Script",
                         lines=10,
-                        placeholder="001: In the quiet dawn of curiosity...\n002: Thinkers looked up at the stars...\n003: Today we continue that journey...",
+                        placeholder="Paste your story or narration as simple text lines...\nEach line on its own row...\nNo numbering or splitting needed...",
                         value=sample_script
                     )
 
@@ -209,7 +195,7 @@ with gr.Blocks(title="Audio.to.Video Studio", css=custom_css, theme=gr.themes.De
                 with gr.Column(scale=5):
                     gr.Markdown("### 🎵 Output MP3 Audio Player")
                     t1_audio_out = gr.Audio(label="Master Voice Narration (MP3)", interactive=False)
-                    t1_status = gr.Markdown("Status: *Ready. Paste your script and click 'Convert Script to MP3'.*")
+                    t1_status = gr.Markdown("Status: *Ready. Paste your script lines and click 'Convert Script to MP3'.*")
 
             # Tab 1 Event
             t1_convert_btn.click(
@@ -225,9 +211,9 @@ with gr.Blocks(title="Audio.to.Video Studio", css=custom_css, theme=gr.themes.De
                     gr.Markdown("### 🎵 Master Audio & Script")
                     t2_audio = gr.Audio(label="Upload Master MP3/WAV Audio", type="filepath")
                     t2_script = gr.Textbox(
-                        label="Numbered Scene Script (001:, 002:...)",
+                        label="Scene Script (Simple Text Lines - 1 line per scene image)",
                         lines=8,
-                        placeholder="001: Scene one text...\n002: Scene two text...",
+                        placeholder="Line 1 narration...\nLine 2 narration...\nLine 3 narration...",
                         value=sample_script
                     )
 
