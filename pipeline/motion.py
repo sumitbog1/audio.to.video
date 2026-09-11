@@ -22,7 +22,7 @@ def load_and_fit_image(
         img = Image.new("RGB", target_size, color=(16, 20, 30))
         draw = ImageDraw.Draw(img)
         title = f"Scene {scene_id}" if scene_id else "Scene"
-        subtitle = "Missing Scene Image - Placeholder"
+        sub_label = "Missing Scene Image - Placeholder"
         try:
             f_title = ImageFont.truetype("arialbd.ttf", 64)
             f_sub = ImageFont.truetype("arial.ttf", 36)
@@ -31,14 +31,14 @@ def load_and_fit_image(
             f_sub = ImageFont.load_default()
 
         b1 = draw.textbbox((0, 0), title, font=f_title)
-        b2 = draw.textbbox((0, 0), subtitle, font=f_sub)
+        b2 = draw.textbbox((0, 0), sub_label, font=f_sub)
         w1, h1 = b1[2] - b1[0], b1[3] - b1[1]
         w2, h2 = b2[2] - b2[0], b2[3] - b2[1]
 
         cx = target_size[0] // 2
         cy = target_size[1] // 2
         draw.text((cx - w1 // 2, cy - 40), title, font=f_title, fill=(220, 230, 245))
-        draw.text((cx - w2 // 2, cy + 40), subtitle, font=f_sub, fill=(130, 145, 170))
+        draw.text((cx - w2 // 2, cy + 40), sub_label, font=f_sub, fill=(130, 145, 170))
         return img
 
     img = Image.open(image_path).convert("RGB")

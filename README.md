@@ -1,6 +1,6 @@
 # 🎬 Audio-to-Video Sync Studio (`audio.to.video`)
 
-> Transform a **Master MP3 Audio** file + **Numbered Scene Narrations** (`001`, `002`, `003`...) + **Numbered Images** (`001.png`, `002.png`...) into a fully synchronized, professional 1080p video with cinematic motion and subtitles.
+> Transform a **Master MP3 Audio** file + **Numbered Scene Narrations** (`001`, `002`, `003`...) + **Numbered Images** (`001.png`, `002.png`...) into a fully synchronized, professional 1080p video with cinematic motion.
 
 ---
 
@@ -18,11 +18,7 @@
    - Dynamic pan and zoom on high-res 16:9 widescreen frames (1920x1080).
    - Smooth interpolation perfectly scaled to each scene's audio duration.
 
-4. **Punchy Universal Subtitles**:
-   - High-impact 3–5 word subtitle cards with dark pill background and bold typography.
-   - Accurately timed to spoken words for maximum viewer retention.
-
-5. **Pristine Audio Quality (Lossless FFmpeg Muxing)**:
+4. **Pristine Audio Quality (Lossless FFmpeg Muxing)**:
    - Retains the exact original Master MP3 audio without re-encoding degradation or sync slips.
 
 ---
@@ -60,7 +56,6 @@ python cli.py \
 
 #### CLI Options:
 - `--preview-only`: Preview detected scene timestamps and image matches without rendering.
-- `--no-subtitles`: Render video without subtitle overlays.
 - `--no-ken-burns`: Use static images without pan & zoom.
 - `--model`: Whisper model size (`tiny`, `base`, `small`, `medium`). Default is `base`.
 
@@ -79,6 +74,6 @@ audio.to.video/
     ├── __init__.py
     ├── aligner.py          # Faster-Whisper word alignment & scene boundary detection
     ├── motion.py           # 16:9 Ken Burns pan & zoom generator
-    ├── subtitles.py        # Punchy 3-5 word subtitle cards
+    ├── image_gen.py        # Minimalist editorial line-art generator
     └── composer.py         # Clip concatenation & FFmpeg audio muxer
 ```

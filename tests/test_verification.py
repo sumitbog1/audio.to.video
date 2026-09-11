@@ -81,14 +81,13 @@ def run_verification():
 
         assert abs(aligned[-1]["end"] - audio_dur) < 0.5, "Last scene end time does not match audio duration"
 
-        print("[TEST 5] Assembling video with Ken Burns motion & punchy subtitles...")
+        print("[TEST 5] Assembling video with Ken Burns motion...")
         out_video = os.path.join(temp_test_dir, "test_output_verification.mp4")
         res = assemble_video(
             aligned_scenes=aligned,
             images_source=temp_test_dir,
             audio_path=audio_path,
             output_path=out_video,
-            enable_subtitles=True,
             enable_ken_burns=True,
             fps=24
         )

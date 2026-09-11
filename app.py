@@ -115,7 +115,6 @@ def build_full_video_existing_audio(
     script_text,
     images_files,
     folder_path,
-    enable_subtitles,
     enable_ken_burns,
     model_size,
     progress=gr.Progress(track_tqdm=True)
@@ -158,7 +157,6 @@ def build_full_video_existing_audio(
             images_source=img_src,
             audio_path=audio_path,
             output_path=output_video_path,
-            enable_subtitles=enable_subtitles,
             enable_ken_burns=enable_ken_burns,
             fps=24,
             progress_callback=p_cb
@@ -316,7 +314,6 @@ with gr.Blocks(title="Audio.to.Video Studio", css=custom_css, theme=gr.themes.De
 
                     with gr.Row():
                         t2_ken_burns = gr.Checkbox(label="Ken Burns Motion (Pan & Zoom)", value=True)
-                        t2_subtitles = gr.Checkbox(label="Universal Subtitles", value=True)
 
                     with gr.Row():
                         t2_preview_btn = gr.Button("Preview Scene Timestamps", variant="secondary")
@@ -352,7 +349,6 @@ with gr.Blocks(title="Audio.to.Video Studio", css=custom_css, theme=gr.themes.De
                     t2_script,
                     t2_images,
                     t2_folder,
-                    t2_subtitles,
                     t2_ken_burns,
                     t2_model
                 ],

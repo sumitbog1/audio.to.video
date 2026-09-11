@@ -41,10 +41,6 @@ def main():
         help="Path for output MP4 video (default: outputs/synced_output.mp4)"
     )
     parser.add_argument(
-        "--no-subtitles", action="store_true",
-        help="Disable Universal UI punchy subtitles"
-    )
-    parser.add_argument(
         "--no-ken-burns", action="store_true",
         help="Disable cinematic Ken Burns pan/zoom motion"
     )
@@ -122,7 +118,6 @@ def main():
         images_source=img_src,
         audio_path=audio_path,
         output_path=args.output,
-        enable_subtitles=not args.no_subtitles,
         enable_ken_burns=not args.no_ken_burns,
         fps=24,
         progress_callback=lambda f, desc: print(f"  [{int(f*100):3d}%] {desc}")

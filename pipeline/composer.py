@@ -12,7 +12,6 @@ except ImportError:
     from moviepy import concatenate_videoclips
 
 from .motion import create_ken_burns_clip, TARGET_WIDTH, TARGET_HEIGHT
-from .subtitles import attach_subtitles_to_clip
 
 
 def _get_ffmpeg_exe() -> str:
@@ -95,7 +94,6 @@ def assemble_video(
     images_source: Any,
     audio_path: str,
     output_path: str,
-    enable_subtitles: bool = True,
     enable_ken_burns: bool = True,
     fps: int = 24,
     progress_callback = None
@@ -103,9 +101,8 @@ def assemble_video(
     """
     Main Assembly Pipeline:
     1. Creates animated video clip for each scene with exact audio duration.
-    2. Overlays synchronized subtitles (if enabled).
-    3. Concatenates all scenes.
-    4. Muxes original Master MP3 audio using FFmpeg for pristine quality.
+    2. Concatenates all scenes.
+    3. Muxes original Master MP3 audio using FFmpeg for pristine quality.
     """
     if not aligned_scenes:
         raise ValueError("No aligned scenes provided.")
@@ -139,10 +136,6 @@ def assemble_video(
             # Create motion clip
             mode = modes[idx % len(modes)] if enable_ken_burns else "static"
             clip = create_ken_burns_clip(img_path, duration=duration, mode=mode, fps=fps, scene_id=scene_id)
-
-            # Attach subtitles
-            if enable_subtitles and scene.get("words"):
-                clip = attach_subtitles_to_clip(clip, scene, scene_start_offset=scene["start"])
 
             clips.append(clip)
 
