@@ -3,22 +3,32 @@
 import os
 import numpy as np
 from PIL import Image, ImageOps, ImageDraw, ImageFont
-from typing import Tuple
+from typing import Tuple, Any
 
 TARGET_WIDTH = 1920
 TARGET_HEIGHT = 1080
 
 
 def load_and_fit_image(
-    image_path: str,
+    image_path: Any,
     scene_id: str = "",
     target_size: Tuple[int, int] = (TARGET_WIDTH, TARGET_HEIGHT)
 ) -> Image.Image:
     """
     Loads image and fits it to 16:9 widescreen (1920x1080) with high quality Lanczos downsampling.
     If the image is missing, generates an elegant dark cinematic card indicating the scene ID.
+    Supports file path string or PIL.Image.Image instance.
     """
-    if not image_path or not os.path.exists(image_path):
+    img = None
+    if isinstance(image_path, Image.Image):
+        img = image_path.convert("RGB")
+    elif isinstance(image_path, str) and image_path and os.path.exists(image_path):
+        try:
+            img = Image.open(image_path).convert("RGB")
+        except Exception:
+            img = None
+
+    if img is None:
         img = Image.new("RGB", target_size, color=(16, 20, 30))
         draw = ImageDraw.Draw(img)
         title = f"Scene {scene_id}" if scene_id else "Scene"
@@ -41,7 +51,6 @@ def load_and_fit_image(
         draw.text((cx - w2 // 2, cy + 40), sub_label, font=f_sub, fill=(130, 145, 170))
         return img
 
-    img = Image.open(image_path).convert("RGB")
     fitted = ImageOps.fit(img, target_size, method=Image.Resampling.LANCZOS)
     return fitted
 

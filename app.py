@@ -83,28 +83,25 @@ def preview_alignment(audio_file, script_text, images_files, folder_path, model_
         progress(0.6, desc="Aligning timestamps...")
         aligned = align_scenes_to_audio(scenes, audio_path, model_size=model_size)
 
-        grid_data = []
+        scenes_data = []
         matched_count = 0
         for s in aligned:
             matched_img = find_matching_image(s["id"], img_src)
             if matched_img:
                 matched_count += 1
-                img_name = os.path.basename(matched_img)
-            else:
-                img_name = "Missing (Uses Placeholder)"
 
-            grid_data.append([
-                f"Scene {s['id']}",
-                f"{s['start']:.2f}s",
-                f"{s['end']:.2f}s",
-                f"{s['duration']:.2f}s",
-                img_name,
-                s["text"]
-            ])
+            scenes_data.append({
+                "id": s["id"],
+                "start": s["start"],
+                "end": s["end"],
+                "duration": s["duration"],
+                "text": s["text"],
+                "image_path": matched_img if matched_img else None
+            })
 
         progress(1.0, desc="Preview complete!")
-        summary = f"Status: **Alignment Ready.** Audio: `{total_dur:.2f}s` | Scenes: `{len(aligned)}` | Images matched: `{matched_count}/{len(aligned)}`"
-        return grid_data, summary
+        summary = f"Status: **Alignment Ready.** Audio: `{total_dur:.2f}s` | Scenes: `{len(scenes_data)}` | Images matched: `{matched_count}/{len(scenes_data)}`"
+        return scenes_data, summary
 
     except Exception as e:
         return [], f"Status: **Error:** {str(e)}"
@@ -117,34 +114,40 @@ def build_full_video_existing_audio(
     folder_path,
     enable_ken_burns,
     model_size,
+    scenes_state,
     progress=gr.Progress(track_tqdm=True)
 ):
     """Generates the full master 1080p video synchronized to the audio with clean status updates."""
     if not audio_file:
         return None, "Status: **Error:** Please upload an MP3/WAV audio file.", []
 
-    if not script_text or not script_text.strip():
-        return None, "Status: **Error:** Please enter your scene narration script.", []
-
     audio_path = audio_file.name if hasattr(audio_file, "name") else audio_file
 
     try:
-        progress(0.05, desc="Parsing script...")
-        scenes = parse_scene_script(script_text)
-        if not scenes:
-            return None, "Status: **Error:** No valid scenes found in script.", []
-
         img_src = folder_path.strip() if folder_path and os.path.isdir(folder_path.strip()) else []
         if not img_src and images_files:
             img_src = [f.name if hasattr(f, "name") else f for f in images_files]
-
-        # Default fallback to generated_images if empty
         if not img_src and os.path.isdir(IMAGES_DIR) and len(os.listdir(IMAGES_DIR)) > 0:
             img_src = IMAGES_DIR
 
-        progress(0.20, desc=f"Aligning with Faster-Whisper ({model_size})...")
-        aligned = align_scenes_to_audio(scenes, audio_path, model_size=model_size)
-        total_dur = get_audio_duration(audio_path)
+        # If user has already previewed and adjusted scenes in state, use them directly
+        if scenes_state and len(scenes_state) > 0:
+            aligned = scenes_state
+        else:
+            if not script_text or not script_text.strip():
+                return None, "Status: **Error:** Please enter your scene narration script.", []
+
+            progress(0.05, desc="Parsing script...")
+            scenes = parse_scene_script(script_text)
+            if not scenes:
+                return None, "Status: **Error:** No valid scenes found in script.", []
+
+            progress(0.20, desc=f"Aligning with Faster-Whisper ({model_size})...")
+            aligned = align_scenes_to_audio(scenes, audio_path, model_size=model_size)
+            for s in aligned:
+                if not s.get("image_path"):
+                    matched = find_matching_image(s["id"], img_src)
+                    s["image_path"] = matched if matched else None
 
         timestamp = int(time.time())
         output_video_path = os.path.join(OUTPUT_DIR, f"synced_video_{timestamp}.mp4")
@@ -162,25 +165,12 @@ def build_full_video_existing_audio(
             progress_callback=p_cb
         )
 
-        grid_data = []
-        for s in aligned:
-            matched_img = find_matching_image(s["id"], img_src)
-            img_name = os.path.basename(matched_img) if matched_img else "Missing (Placeholder)"
-            grid_data.append([
-                f"Scene {s['id']}",
-                f"{s['start']:.2f}s",
-                f"{s['end']:.2f}s",
-                f"{s['duration']:.2f}s",
-                img_name,
-                s["text"]
-            ])
-
         progress(1.0, desc="Complete!")
         status_msg = f"Status: **Success!** Video generated successfully! Saved to: `{output_video_path}`"
-        return output_video_path, status_msg, grid_data
+        return output_video_path, status_msg, aligned
 
     except Exception as e:
-        return None, f"Status: **Error:** {str(e)}", []
+        return None, f"Status: **Error:** {str(e)}", scenes_state or []
 
 
 # ----------------------------------------------------------------------
@@ -325,21 +315,79 @@ with gr.Blocks(title="Audio.to.Video Studio", css=custom_css, theme=gr.themes.De
                     t2_video_out = gr.Video(label="Synchronized 1080p Video", interactive=False)
                     t2_status = gr.Markdown("Status: *Ready. Upload audio and click 'Preview' or 'Generate'.*")
 
-            # FULL-WIDTH SIMPLE GRID SECTION
+            # FULL-WIDTH INTERACTIVE SCENE VISUAL STUDIO
             gr.Markdown("---")
-            gr.Markdown("### Detected Scene Timestamps & Image Matching")
-            t2_grid = gr.Dataframe(
-                headers=["Scene ID", "Start Time", "End Time", "Duration", "Matched Image", "Narration Text"],
-                datatype=["str", "str", "str", "str", "str", "str"],
-                interactive=False,
-                wrap=True
-            )
+            t2_scenes_state = gr.State([])
+
+            @gr.render(inputs=t2_scenes_state)
+            def render_scene_cards(scenes):
+                if not scenes:
+                    gr.Markdown("### Scene Visual Preview & Image Manager\n*No scenes detected yet. Upload audio & script above, then click **'Preview Scene Timestamps'**.*")
+                    return
+
+                gr.Markdown(f"### Detected Scenes ({len(scenes)}) — Visual Image Manager")
+                gr.Markdown("*Each scene displays its assigned image. Click or drag-and-drop to replace/upload, click ✕ to clear image, or click 'Delete Scene' to exclude it from the video.*")
+
+                for idx, s in enumerate(scenes):
+                    with gr.Group():
+                        with gr.Row():
+                            with gr.Column(scale=3, min_width=220):
+                                img_label = f"Scene {s['id']} Image (" + (os.path.basename(s['image_path']) if s.get('image_path') else "Missing / Placeholder") + ")"
+                                img_comp = gr.Image(
+                                    value=s.get("image_path"),
+                                    label=img_label,
+                                    type="filepath",
+                                    interactive=True,
+                                    height=170
+                                )
+                            with gr.Column(scale=7):
+                                with gr.Row():
+                                    gr.Markdown(f"#### Scene {s['id']} &nbsp;|&nbsp; `{s['start']:.2f}s -> {s['end']:.2f}s` &nbsp;|&nbsp; Duration: `{s['duration']:.2f}s`")
+                                    del_btn = gr.Button(f"Delete Scene {s['id']}", size="sm", variant="secondary")
+
+                                txt_comp = gr.Textbox(
+                                    value=s.get("text", ""),
+                                    label="Narration Text",
+                                    lines=2,
+                                    interactive=True
+                                )
+
+                                def on_img_change(new_img, current_idx=idx, all_scenes=scenes):
+                                    if current_idx < len(all_scenes):
+                                        all_scenes[current_idx]["image_path"] = new_img
+                                    return all_scenes
+
+                                img_comp.change(
+                                    fn=on_img_change,
+                                    inputs=[img_comp],
+                                    outputs=[t2_scenes_state]
+                                )
+
+                                def on_txt_change(new_txt, current_idx=idx, all_scenes=scenes):
+                                    if current_idx < len(all_scenes):
+                                        all_scenes[current_idx]["text"] = new_txt
+                                    return all_scenes
+
+                                txt_comp.change(
+                                    fn=on_txt_change,
+                                    inputs=[txt_comp],
+                                    outputs=[t2_scenes_state]
+                                )
+
+                                def on_del_scene(current_idx=idx, all_scenes=scenes):
+                                    updated = [item for i, item in enumerate(all_scenes) if i != current_idx]
+                                    return updated
+
+                                del_btn.click(
+                                    fn=on_del_scene,
+                                    outputs=[t2_scenes_state]
+                                )
 
             # Tab 2 Events
             t2_preview_btn.click(
                 fn=preview_alignment,
                 inputs=[t2_audio, t2_script, t2_images, t2_folder, t2_model],
-                outputs=[t2_grid, t2_status]
+                outputs=[t2_scenes_state, t2_status]
             )
 
             t2_generate_btn.click(
@@ -350,9 +398,10 @@ with gr.Blocks(title="Audio.to.Video Studio", css=custom_css, theme=gr.themes.De
                     t2_images,
                     t2_folder,
                     t2_ken_burns,
-                    t2_model
+                    t2_model,
+                    t2_scenes_state
                 ],
-                outputs=[t2_video_out, t2_status, t2_grid]
+                outputs=[t2_video_out, t2_status, t2_scenes_state]
             )
 
         # --------------------------------------------------------------

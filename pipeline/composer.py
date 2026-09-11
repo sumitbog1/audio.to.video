@@ -127,8 +127,10 @@ def assemble_video(
             if progress_callback:
                 progress_callback(idx / total_scenes, f"Processing scene {idx + 1}/{total_scenes} (ID: {scene_id})...")
 
-            # Find matching image
-            img_path = find_matching_image(scene_id, images_source)
+            # Find matching image (check scene's assigned image first, then directory source)
+            img_path = scene.get("image_path") or scene.get("image")
+            if not img_path:
+                img_path = find_matching_image(scene_id, images_source)
             if not img_path:
                 print(f"[composer] Warning: No image found for scene {scene_id}. Using cinematic placeholder slate.")
                 img_path = ""
